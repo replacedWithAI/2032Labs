@@ -8,6 +8,8 @@
 #include "MKL43Z4.h"
 #include "fsl_debug_console.h"
 
+bool StartTimerFlag = false;
+int HundredsCounter = 0;
 
 int main() {
     BOARD_InitBootPins();
@@ -55,7 +57,18 @@ int main() {
     __enable_irq();
 
 
+    disable_irq();
+    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk; // Clear bit 1:disable SysTick interrupt
+    SysTick->LOAD = 0xF24400;
+    SysTick->CTRL |= 1<<0 |1 <<1 | 1<<2; // enable clock, and interrupt, system clock,
+    enable_irq();
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+    
+
     while (1) {
+        while((SysTick->CTRL & 0x10000) == 0) {}
+        HundredsCounter++;
+        PTE->PTOR |= 1u << 31;
         __asm volatile ("nop");
     }
 }
@@ -85,3 +98,5 @@ void PORTA_IRQHandler(void) {
             break;
     }
 }
+
+void SysTick_Handler(void) {PTE->PTOR = 1<<31;}
