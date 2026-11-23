@@ -8,8 +8,9 @@
 #include "MKL43Z4.h"
 #include "fsl_debug_console.h"
 
-bool StartTimerFlag = false;
-int HundredsCounter = 0;
+volatile bool StartTimerFlag = false;
+volatile uint32_t HundredCounter = 0;
+
 
 int main() {
     BOARD_InitBootPins();
@@ -57,28 +58,37 @@ int main() {
     __enable_irq();
 
 
-    disable_irq();
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk; // Clear bit 1:disable SysTick interrupt
-    SysTick->LOAD = 0xF24400;
-    SysTick->CTRL |= 1<<0 |1 <<1 | 1<<2; // enable clock, and interrupt, system clock,
-    enable_irq();
+    __disable_irq();
+    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+    SysTick->LOAD = 0x493E00; // timer intervals
+    SysTick->CTRL |= 1 << 1 | 1 << 2; // use system clock and interrupt. No enable yet
+    __enable_irq();
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
-    
+
 
     while (1) {
-        while((SysTick->CTRL & 0x10000) == 0) {}
-        HundredsCounter++;
-        PTE->PTOR |= 1u << 31;
         __asm volatile ("nop");
     }
 }
 
 
 void PORTC_PORTD_IRQHandler(void) {
-    switch(PORTD->ISFR & (1 << 3)) {
+    switch(PORTD->ISFR) {
         case((1 << 3)):
             PORTD->PCR[3] |= (1 << 3);
-            PTD->PTOR = (1 << 5);
+
+            if (!StartTimerFlag) {
+                PTD->PTOR = 1 << 5;
+                PTE->PDOR |= (1 << 31); // turn stop LED off
+                
+                StartTimerFlag = true;
+                HundredCounter = 0;
+
+                SysTick->LOAD = 0x493E00;
+                SysTick->CTRL |= 1 << 0 |1 << 1 | 1 << 2;
+            }
+
+            SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
             break;
         default:
             PORTD->ISFR |= 0xFFFFFFFF;
@@ -91,7 +101,15 @@ void PORTA_IRQHandler(void) {
     switch(PORTA->ISFR) {
         case((1 << 4)):
             PORTA->PCR[4] |= (1 << 4);
-            PTE->PTOR = (1 << 31);
+
+            if (StartTimerFlag) {
+                StartTimerFlag = false;
+                HundredCounter = 0;
+
+                SysTick->LOAD = 0x493E00;
+                SysTick->CTRL &= ~(1 << 0); // stop the timer
+            }
+
             break;
         default:
             PORTA->ISFR |= 0xFFFFFFFF;
@@ -99,4 +117,8 @@ void PORTA_IRQHandler(void) {
     }
 }
 
-void SysTick_Handler(void) {PTE->PTOR = 1<<31;}
+
+void SysTick_Handler(void) {
+    HundredCounter++;
+    PTD->PTOR = 1 << 5;
+}
